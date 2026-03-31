@@ -73,7 +73,7 @@ td.c.hll{background:var(--purpleDim);animation:pop .3s}
 const GURL="https://script.google.com/macros/s/AKfycby-JkwiebFtp_R9q4oR_wDBygB_do20yrfVdHXbCG8yXtSfyjKPjuuveGSFEDEwjO5RcA/exec";
 const NAMES=["David","Mark","Tala","Huong","Paulo","Bob","Dung","Lan","Lien","Hoi","Son","Chien","Ito","Hong","Tu","Nghia","Vinh","Kevin","Ninh","Phat","Linh","Dieu","Amy","Thi"];
 const NL=NAMES.map(n=>n.toLowerCase());
-const MN=15,MC=3,ML=3;
+const MN=25,MC=13,ML=3;
 const cC=v=>Math.round(v*14/12),lC=v=>Math.round(v*13/17);
 let D={};NAMES.forEach(n=>{D[n]={normal:[],costco:[],lidoff:[]}});
 let on=false,mode="idle";
@@ -83,8 +83,8 @@ let logs=[],recent=[],lastHL=null,rec=null,sync="ok";
 
 async function toSheet(a,p){sync="pe";R();try{const u=new URL(GURL);u.searchParams.set("action",a);for(const[k,v]of Object.entries(p))u.searchParams.set(k,v);const r=await(await fetch(u,{redirect:"follow"})).json();sync=r.error?"er":"ok";R()}catch{sync="er";R()}}
 
-const WN={zero:0,one:1,won:1,two:2,too:2,three:3,tree:3,free:3,four:4,five:5,hive:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,thirty:30,fourteen:14,forty:40,fifteen:15,fifty:50,sixteen:16,sixty:60,seventeen:17,seventy:70,eighteen:18,eighty:80,nineteen:19,ninety:90,twenty:20,hundred:100};
-function w2n(s){const d=parseInt(s);if(!isNaN(d))return d;const w=s.toLowerCase().replace(/-/g," ").replace(/\b(uh|um|a|the|and)\b/g,"").trim().split(/\s+/).filter(Boolean);let c=0;for(const x of w){if(WN[x]!==undefined){if(x==="hundred")c=(c||1)*100;else c+=WN[x]}}return c}
+const WN={zero:0,one:1,won:1,two:2,too:2,three:3,tree:3,free:3,four:4,five:5,hive:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,thirty:30,fourteen:14,forty:40,fifteen:15,fifty:50,sixteen:16,sixty:60,seventeen:17,seventy:70,eighteen:18,eighty:80,nineteen:19,ninety:90,twenty:20,hundred:100,"một":1,"hai":2,"ba":3,"bốn":4,"năm":5,"sáu":6,"bảy":7,"tám":8,"chín":9,"mười":10,"mươi":"x10","mốt":1,"lăm":5,"nhăm":5,"mot":1,"bon":4,"nam":5,"sau":6,"bay":7,"tam":8,"chin":9,"muoi":"x10_or_10","lam":5,"nham":5};
+function w2n(s){const d=parseInt(s);if(!isNaN(d))return d;const w=s.toLowerCase().replace(/-/g," ").replace(/\b(uh|um|a|the|and)\b/g,"").trim().split(/\s+/).filter(Boolean);let c=0;for(const x of w){const v=WN[x];if(v!==undefined){if(v==="x10")c=(c||1)*10;else if(v==="x10_or_10")c=(c===0)?10:c*10;else if(x==="hundred")c=(c||1)*100;else c+=v}}return c}
 function lev(a,b){const m=a.length,n=b.length,d=Array.from({length:m+1},()=>Array(n+1).fill(0));for(let i=0;i<=m;i++)d[i][0]=i;for(let j=0;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]!==b[j-1]?1:0));return d[m][n]}
 
 const NA={"david":["david","davit","dave"],"mark":["mark","marc","mock"],"tala":["tala","talla","tyler","tara"],"huong":["huong","hong","hung","huang","hwong","fuong"],"paulo":["paulo","pablo","polo","paul"],"bob":["bob","bop","rob"],"dung":["dung","dong","doong","young","jung","yung"],"lan":["lan","lynn","lam","lon"],"lien":["lien","lean","leon","leen","lin"],"hoi":["hoi","hoy","hoe","hey"],"son":["son","sun","sung","sewn","zone"],"chien":["chien","chen","chicken","jean","chain","sheen"],"ito":["ito","eagle","etoh","eat oh","e2"],"hong":["hong","hung","honk"],"tu":["tu","too","to","tue"],"nghia":["nghia","nia","nea","niya","knee ya"],"vinh":["vinh","vin","veen","vine","win"],"kevin":["kevin","kelvin","gavin","kev"],"ninh":["ninh","nin","ning","neen","nine"],"phat":["phat","fat","fatt","pot","pat"],"linh":["linh","lin","ling","lynn"],"dieu":["dieu","dew","due","dio","dee you"],"amy":["amy","amee","aimee"],"thi":["thi","tea","thee","ti","tee","fee"]};
@@ -142,7 +142,13 @@ function spMatch(sp){
 function say(t){return new Promise(r=>{speechSynthesis.cancel();setTimeout(()=>{const u=new SpeechSynthesisUtterance(t);u.rate=1.4;u.volume=1;u.pitch=1.1;u.lang="en-US";u.onend=()=>setTimeout(r,60);u.onerror=()=>setTimeout(r,60);speechSynthesis.speak(u)},30)})}
 function vib(m){try{navigator.vibrate(m)}catch{}}
 function log(m,t="info"){logs.push({m,t,d:new Date()});if(logs.length>60)logs=logs.slice(-60);R()}
-function tot(p){return p.normal.reduce((a,b)=>a+b,0)+p.costco.reduce((a,b)=>a+cC(b),0)+p.lidoff.reduce((a,b)=>a+lC(b),0)}
+
+function tot(p){
+  const ns=p.normal.reduce((a,b)=>a+b,0);
+  const cs=p.costco.reduce((a,b)=>a+b,0);
+  const ls=p.lidoff.reduce((a,b)=>a+lC(b),0);
+  return ns+(cs>0?cC(cs):0)+ls;
+}
 
 function startMic(){
   if(!on)return;
@@ -350,18 +356,38 @@ function R(){
 function done(){return`<div class="bottom"><div class="mbw"><button class="bdone" onclick="stop()">■ DONE</button></div></div>`}
 
 function renderT(){
-  let h=`<div class="content"><div class="twrap"><table><thead><tr><th class="b" rowspan="2" style="position:sticky;left:0;z-index:5;min-width:68px;background:var(--surface)">Name</th><th class="b" colspan="${MN}" style="color:var(--accent);text-align:center;border-left:2px solid rgba(56,189,248,.13)">Normal</th><th class="b" colspan="6" style="color:var(--orange);text-align:center;border-left:2px solid rgba(251,191,36,.13)">Costco</th><th class="b" colspan="6" style="color:var(--purple);text-align:center;border-left:2px solid rgba(167,139,250,.13)">LidOff</th><th class="b" rowspan="2" style="color:var(--green);text-align:center;border-left:2px solid rgba(74,222,128,.13)">Tot</th></tr><tr>`;
+  let h=`<div class="content"><div class="twrap"><table><thead><tr><th class="b" rowspan="2" style="position:sticky;left:0;z-index:5;min-width:68px;background:var(--surface)">Name</th><th class="b" colspan="${MN}" style="color:var(--accent);text-align:center;border-left:2px solid rgba(56,189,248,.13)">Normal</th><th class="b" colspan="${MC+1}" style="color:var(--orange);text-align:center;border-left:2px solid rgba(251,191,36,.13)">Costco</th><th class="b" colspan="${ML*2}" style="color:var(--purple);text-align:center;border-left:2px solid rgba(167,139,250,.13)">LidOff</th><th class="b" rowspan="2" style="color:var(--green);text-align:center;border-left:2px solid rgba(74,222,128,.13)">Tot</th></tr><tr>`;
   for(let i=1;i<=MN;i++)h+=`<th class="s"${i===1?' style="border-left:2px solid rgba(56,189,248,.13)"':''}>${i}</th>`;
-  for(let i=1;i<=3;i++)h+=`<th class="s" style="color:var(--orange);${i===1?'border-left:2px solid rgba(251,191,36,.13)':''}">C${i}</th><th class="s" style="color:rgba(251,191,36,.4)">cv</th>`;
-  for(let i=1;i<=3;i++)h+=`<th class="s" style="color:var(--purple);${i===1?'border-left:2px solid rgba(167,139,250,.13)':''}">L${i}</th><th class="s" style="color:rgba(167,139,250,.4)">cv</th>`;
+  for(let i=1;i<=MC;i++)h+=`<th class="s" style="color:var(--orange);${i===1?'border-left:2px solid rgba(251,191,36,.13)':''}">C${i}</th>`;
+  h+=`<th class="s" style="color:rgba(251,191,36,.4)">cv</th>`;
+  for(let i=1;i<=ML;i++)h+=`<th class="s" style="color:var(--purple);${i===1?'border-left:2px solid rgba(167,139,250,.13)':''}">L${i}</th><th class="s" style="color:rgba(167,139,250,.4)">cv</th>`;
   h+=`</tr></thead><tbody>`;
   NAMES.forEach((name,ri)=>{
     const p=D[name],t=tot(p),a=p.normal.length+p.costco.length+p.lidoff.length>0;
     const bg=ri%2===0?"var(--bg)":"var(--card)";
     h+=`<tr style="background:${ri%2===0?"transparent":"rgba(20,28,43,.27)"}"><td class="nm" style="background:${bg};color:${a?"var(--text)":"var(--dim)"}">${name}</td>`;
+    
+    // Normal Columns
     for(let i=0;i<MN;i++){const v=p.normal[i],hl=lastHL&&lastHL.name===name&&lastHL.sec==="normal"&&lastHL.idx===i;h+=`<td class="c${hl?" hl":""}"${i===0?' style="border-left:2px solid rgba(56,189,248,.13)"':''}>${v??""}</td>`}
-    for(let i=0;i<3;i++){const v=p.costco[i],cv=v!=null?cC(v):null,hl=lastHL&&lastHL.name===name&&lastHL.sec==="costco"&&lastHL.idx===i;h+=`<td class="c${hl?" hlc":""}" style="${i===0?"border-left:2px solid rgba(251,191,36,.13);":""}${v!=null?"color:var(--orange)":""}">${v??""}</td><td class="c" style="color:${cv!=null?"rgba(251,191,36,.47)":"var(--dim)"};font-style:italic;font-size:9px">${cv??""}</td>`}
-    for(let i=0;i<3;i++){const v=p.lidoff[i],cv=v!=null?lC(v):null,hl=lastHL&&lastHL.name===name&&lastHL.sec==="lidoff"&&lastHL.idx===i;h+=`<td class="c${hl?" hll":""}" style="${i===0?"border-left:2px solid rgba(167,139,250,.13);":""}${v!=null?"color:var(--purple)":""}">${v??""}</td><td class="c" style="color:${cv!=null?"rgba(167,139,250,.47)":"var(--dim)"};font-style:italic;font-size:9px">${cv??""}</td>`}
+    
+    // Costco Columns
+    let cSum=0;
+    for(let i=0;i<MC;i++){
+      const v=p.costco[i];
+      if(v!=null)cSum+=v;
+      const hl=lastHL&&lastHL.name===name&&lastHL.sec==="costco"&&lastHL.idx===i;
+      h+=`<td class="c${hl?" hlc":""}" style="${i===0?"border-left:2px solid rgba(251,191,36,.13);":""}${v!=null?"color:var(--orange)":""}">${v??""}</td>`;
+    }
+    const cvTotal = cSum>0?cC(cSum):"";
+    h+=`<td class="c" style="color:rgba(251,191,36,.47);font-style:italic;font-size:9px">${cvTotal}</td>`;
+    
+    // LidOff Columns
+    for(let i=0;i<ML;i++){
+      const v=p.lidoff[i],cv=v!=null?lC(v):null,hl=lastHL&&lastHL.name===name&&lastHL.sec==="lidoff"&&lastHL.idx===i;
+      h+=`<td class="c${hl?" hll":""}" style="${i===0?"border-left:2px solid rgba(167,139,250,.13);":""}${v!=null?"color:var(--purple)":""}">${v??""}</td><td class="c" style="color:${cv!=null?"rgba(167,139,250,.47)":"var(--dim)"};font-style:italic;font-size:9px">${cv??""}</td>`
+    }
+    
+    // Total Column
     h+=`<td class="c" style="font-weight:700;font-size:12px;color:${t>0?"var(--green)":"var(--dim)"};border-left:2px solid rgba(74,222,128,.13);font-family:'Outfit'">${t}</td></tr>`;
   });
   h+=`</tbody></table></div></div>`;return h;
