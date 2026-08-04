@@ -1,0 +1,15 @@
+{
+  "name": "tray-tally-system",
+  "version": "2.0.3",
+  "private": true,
+  "description": "Bilingual voice and reviewed handwriting entry for oyster tray records.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
