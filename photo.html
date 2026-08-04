@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tray Tally - Photo Entry</title>
+  <style>
+    :root{color-scheme:dark;--bg:#081018;--panel:#111c29;--line:#26384e;--text:#e8eef7;--muted:#9aacbf;--blue:#38bdf8;--green:#4ade80;--red:#fb7185;--orange:#fbbf24}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px system-ui,sans-serif}header{padding:18px;border-bottom:1px solid var(--line)}main{width:min(1180px,96%);margin:20px auto}a{color:var(--blue)}button{border:1px solid var(--line);border-radius:10px;padding:11px 15px;background:var(--panel);color:var(--text);cursor:pointer;font-weight:700}button:disabled{opacity:.55;cursor:not-allowed}button.primary{background:var(--blue);color:#04111b;border-color:var(--blue)}button.good{background:var(--green);color:#04130a;border-color:var(--green)}button.danger{color:var(--red)}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}input,textarea{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:#0a1420;color:var(--text)}table{width:100%;border-collapse:collapse;font-size:14px;min-width:1080px}th,td{border-bottom:1px solid var(--line);padding:7px;text-align:left;vertical-align:top}.muted{color:var(--muted)}.small{font-size:13px}.preview{max-width:100%;max-height:480px;border-radius:10px;border:1px solid var(--line)}.status{min-height:24px;margin:10px 0}.row-actions{display:flex;gap:5px;flex-wrap:wrap}.low-confidence{background:rgba(251,191,36,.08)}.confirmed{background:rgba(74,222,128,.07)}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Tray Tally - Photo Entry</h1>
+  <p class="muted">Capture the handwritten tray sheet, review every extracted row, and save only confirmed entries.</p>
+  <p><a href="index.html">Open voice entry</a></p>
+</header>
+<main>
+  <div class="card">
+    <h2>1. Capture or upload the sheet</h2>
+    <input id="photoFile" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" />
+    <div style="margin-top:12px"><img id="preview" class="preview" hidden alt="Uploaded tray sheet preview" /></div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button id="extractBtn" class="primary">Extract handwriting</button>
+      <button id="cancelBtn" hidden>Cancel</button>
+      <button id="manualBtn">Add manual row</button>
+    </div>
+    <p id="photoStatus" class="status muted" role="status" aria-live="polite"></p>
+  </div>
+  <div class="card">
+    <h2>2. Review and correct</h2>
+    <p class="muted small">Known worker names are used to improve matching. Low-confidence rows are highlighted. No OCR row is saved until you confirm it.</p>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Row</th><th>Name</th><th>Normal values</th><th>Costco</th><th>LidOff</th><th>Confidence</th><th>Notes</th><th>Action</th></tr></thead>
+        <tbody id="reviewBody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:14px"><button id="saveAllBtn" class="good">Save confirmed rows</button></div>
+  </div>
+  <datalist id="workerNames"></datalist>
+</main>
+<script src="runtime-config.js"></script>
+<script>
+const FALLBACK_NAMES=["David", "Mark", "Tala", "Huong", "Paulo", "Bob", "Dung", "Lan", "Lien", "Hoi", "Son", "Chien", "Ito", "Hong", "Tu", "Nghia", "Vinh", "Kevin", "Ninh", "Phat", "Linh", "Dieu", "Amy", "Thi", "Tri", "Niel", "David 2", "Kevin Le", "Lucy", "Nga"];
+const API_BASE=String(window.TRAY_API_BASE||'').replace(/\/$/,'');
+let workerNames=[...FALLBACK_NAMES],rows=[],activeController=null,previewUrl=null,saveBatchId=null;
+const $=id=>document.getElementById(id);
+
+initialise();
+async function initialise(){
+  try{
+    const config=await getJson('/api/config');
+    if(Array.isArray(config.workerNames)&&config.workerNames.length)workerNames=config.workerNames;
+  }catch(error){setStatus('Using the built-in worker list. The API is not connected yet.',false)}
+  renderNameList();renderRows();
+}
+function endpoint(path){return API_BASE+path}
+async function getJson(path){
+  const response=await fetch(endpoint(path),{cache:'no-store'});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.error||`Request failed (${response.status})`);
+  return data;
+}
+async function postJson(path,payload,signal){
+  const response=await fetch(endpoint(path),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.detail||data.error||`Request failed (${response.status})`);
+  return data;
+}
+function renderNameList(){$('workerNames').innerHTML=workerNames.map(name=>`<option value="${escapeHtml(name)}"></option>`).join('')}
+$('photoFile').addEventListener('change',()=>{
+  const file=$('photoFile').files[0];if(!file)return;
+  if(previewUrl)URL.revokeObjectURL(previewUrl);
+  previewUrl=URL.createObjectURL(file);$('preview').src=previewUrl;$('preview').hidden=false;
+});
+$('extractBtn').addEventListener('click',extractPhoto);
+$('cancelBtn').addEventListener('click',()=>activeController?.abort());
+$('manualBtn').addEventListener('click',()=>{rows.push(blankRow());renderRows()});
+$('saveAllBtn').addEventListener('click',saveConfirmedRows);
+
+async function extractPhoto(){
+  const file=$('photoFile').files[0];if(!file)return setStatus('Choose or capture an image first.',true);
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type))return setStatus('Use a JPG, PNG, or WebP image.',true);
+  setBusy(true);setStatus('Preparing and extracting the handwriting. Review every result before saving.');
+  activeController=new AbortController();
+  try{
+    const imageDataUrl=await resizeImage(file,2200,0.9);
+    const data=await postJson('/api/ocr',{imageDataUrl},activeController.signal);
+    rows=(data.rows||[]).map(row=>({...normaliseRow(row),confirmed:false,correctionQueued:false,saved:false}));
+    renderRows();
+    setStatus((data.warnings||[]).join(' ')||`Extracted ${rows.length} rows.`);
+  }catch(error){setStatus(error.name==='AbortError'?'Extraction cancelled.':error.message,true)}
+  finally{activeController=null;setBusy(false)}
+}
+function resizeImage(file,maxDimension,quality){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('Could not read the image.'));
+    reader.onload=()=>{
+      const image=new Image();
+      image.onerror=()=>reject(new Error('Could not decode the image.'));
+      image.onload=()=>{
+        const scale=Math.min(1,maxDimension/Math.max(image.naturalWidth,image.naturalHeight));
+        const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+        const context=canvas.getContext('2d');context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(image,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      image.src=String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function blankRow(){return{row_number:null,name:'',normal_values:[],costco_values:[],lidoff_values:[],confidence:1,notes:'Manual entry',confirmed:false,correctionQueued:false,saved:false}}
+function normaliseRow(row){return{row_number:Number.isInteger(row.row_number)?row.row_number:null,name:workerNames.includes(row.name)?row.name:'',normal_values:cleanValues(row.normal_values,25),costco_values:cleanValues(row.costco_values,10),lidoff_values:cleanValues(row.lidoff_values,3),confidence:Math.max(0,Math.min(1,Number(row.confidence)||0)),notes:String(row.notes||'')}}
+function cleanValues(values,max){return(Array.isArray(values)?values:[]).map(Number).filter(value=>Number.isFinite(value)&&value>0&&value<=999).slice(0,max)}
+function parseValues(text,max){return cleanValues(String(text||'').split(/[\s,;|]+/).filter(Boolean),max)}
+function hasValues(row){return row.normal_values.length+row.costco_values.length+row.lidoff_values.length>0}
+function renderRows(){
+  const body=$('reviewBody');body.innerHTML='';
+  rows.forEach((row,index)=>{
+    const tr=document.createElement('tr');
+    if(row.confirmed)tr.classList.add('confirmed');else if(row.confidence<0.8)tr.classList.add('low-confidence');
+    tr.innerHTML=`<td><input value="${row.row_number??''}" data-field="row_number"></td><td><input list="workerNames" value="${escapeHtml(row.name)}" data-field="name"></td><td><textarea rows="2" data-field="normal_values">${row.normal_values.join(', ')}</textarea></td><td><textarea rows="2" data-field="costco_values">${row.costco_values.join(', ')}</textarea></td><td><textarea rows="2" data-field="lidoff_values">${row.lidoff_values.join(', ')}</textarea></td><td>${Math.round(row.confidence*100)}%</td><td><textarea rows="2" data-field="notes">${escapeHtml(row.notes)}</textarea></td><td class="row-actions"><button data-action="confirm">${row.confirmed?'Confirmed':'Confirm'}</button><button data-action="reject" class="danger" ${row.correctionQueued?'disabled':''}>${row.correctionQueued?'Queued':'Reject'}</button><button data-action="remove">Remove</button></td>`;
+    tr.querySelectorAll('[data-field]').forEach(input=>input.addEventListener('change',()=>{
+      const field=input.dataset.field;
+      if(field==='normal_values')row[field]=parseValues(input.value,25);else if(field==='costco_values')row[field]=parseValues(input.value,10);else if(field==='lidoff_values')row[field]=parseValues(input.value,3);else if(field==='row_number')row[field]=input.value?Number.parseInt(input.value,10):null;else row[field]=input.value.trim();
+      row.confirmed=false;row.saved=false;saveBatchId=null;renderRows();
+    }));
+    tr.querySelector('[data-action="confirm"]').onclick=()=>{
+      if(!workerNames.includes(row.name))return setStatus(`Select a known worker name in row ${row.row_number??index+1}.`,true);
+      if(!hasValues(row))return setStatus(`Enter at least one tray value in row ${row.row_number??index+1}.`,true);
+      row.confirmed=true;renderRows();
+    };
+    tr.querySelector('[data-action="remove"]').onclick=()=>{rows.splice(index,1);renderRows()};
+    tr.querySelector('[data-action="reject"]').onclick=()=>queueCorrection(row,index);
+    body.appendChild(tr);
+  });
+}
+async function queueCorrection(row,index){
+  if(row.correctionQueued)return;
+  try{
+    row.correctionId=row.correctionId||makeId();
+    await postJson('/api/corrections',{correctionId:row.correctionId,row:{...row,row_number:row.row_number??index+1}});
+    row.correctionQueued=true;row.confirmed=false;renderRows();setStatus(`Row ${row.row_number??index+1} was queued. The correction document will be updated after about one minute.`);
+  }catch(error){setStatus(error.message,true)}
+}
+async function saveConfirmedRows(){
+  const confirmed=rows.filter(row=>row.confirmed&&!row.saved);
+  if(!confirmed.length)return setStatus('Confirm at least one unsaved row.',true);
+  $('saveAllBtn').disabled=true;
+  try{
+    saveBatchId=saveBatchId||makeId();
+    const data=await postJson('/api/records',{batchId:saveBatchId,rows:confirmed.map(row=>({row_number:row.row_number,name:row.name,normal_values:row.normal_values,costco_values:row.costco_values,lidoff_values:row.lidoff_values}))});
+    confirmed.forEach(row=>row.saved=true);saveBatchId=null;renderRows();
+    setStatus(data.demoMode?`Demo mode: validated ${confirmed.length} rows without writing to the spreadsheet.`:`Saved ${confirmed.length} confirmed rows.`);
+  }catch(error){setStatus(error.message,true)}finally{$('saveAllBtn').disabled=false}
+}
+function makeId(){return crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2)}
+function setBusy(busy){$('extractBtn').disabled=busy;$('manualBtn').disabled=busy;$('cancelBtn').hidden=!busy}
+function setStatus(message,isError=false){$('photoStatus').textContent=message;$('photoStatus').style.color=isError?'var(--red)':'var(--muted)'}
+function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+</script>
+</body>
+</html>

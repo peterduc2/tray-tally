@@ -70,7 +70,7 @@ td.c.hll{background:var(--purpleDim);animation:pop .3s}
 <div id="app"></div>
 <script>
 const GURL="https://script.google.com/macros/s/AKfycby-JkwiebFtp_R9q4oR_wDBygB_do20yrfVdHXbCG8yXtSfyjKPjuuveGSFEDEwjO5RcA/exec";
-const NAMES=["David","Mark","Tala","Huong","Paulo","Bob","Dung","Lan","Lien","Hoi","Son","Chien","Ito","Hong","Tu","Nghia","Vinh","Kevin","Ninh","Phat","Linh","Dieu","Amy","Thi"];
+const NAMES=["David","Mark","Tala","Huong","Paulo","Bob","Dung","Lan","Lien","Hoi","Son","Chien","Ito","Hong","Tu","Nghia","Vinh","Kevin","Ninh","Phat","Linh","Dieu","Amy","Thi","Tri","Niel","David 2","Kevin Le","Lucy","Nga"];
 const NL=NAMES.map(n=>n.toLowerCase());
 const MN=25,MC=10,ML=3;
 // Costco/Lidoff: convert is done on the SUM, not individually
@@ -83,102 +83,118 @@ let pVal=null,pType="normal",pName=null,pRaw="";
 let spelled="",spTimer=null,spStart=0,spAnimId=null;
 let confirmTimer=null,confirmStart=0,confirmAnimId=null;
 let logs=[],recent=[],lastHL=null,rec=null,sync="ok";
+let voiceLang="en-US",micPaused=false;
 
-async function toSheet(a,p){sync="pe";R();try{const u=new URL(GURL);u.searchParams.set("action",a);for(const[k,v]of Object.entries(p))u.searchParams.set(k,v);const r=await(await fetch(u,{redirect:"follow"})).json();sync=r.error?"er":"ok";R()}catch{sync="er";R()}}
-
-// ── Numbers: English + Vietnamese ──
-const WN={
-  // English
-  zero:0,one:1,won:1,two:2,too:2,three:3,tree:3,free:3,four:4,five:5,hive:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,thirty:30,fourteen:14,forty:40,fifteen:15,fifty:50,sixteen:16,sixty:60,seventeen:17,seventy:70,eighteen:18,eighty:80,nineteen:19,ninety:90,twenty:20,hundred:100,
-  // Vietnamese
-  "không":0,"một":1,"mot":1,"hai":2,"ba":3,"bốn":4,"bon":4,"năm":5,"nam":5,"sáu":6,"sau":6,"bảy":7,"bay":7,"tám":8,"tam":8,"chín":9,"chin":9,
-  "mười":10,"muoi":10,"mươi":10,"muoi":10,
-  "mốt":1,"lăm":5,"lam":5, // special: mười mốt=11, mười lăm=15
-  "trăm":100,"tram":100
-};
-
-// Vietnamese compound number parser
-function parseVietnamese(str){
-  const lo=str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
-  // Try direct patterns first
-  const vnPatterns=[
-    // hai muoi mot = 21, ba muoi hai = 32, etc.
-    [/^(hai|ba|bon|nam|sau|bay|tam|chin)\s*(muoi|muoi)\s*(mot|hai|ba|bon|nam|lam|sau|bay|tam|chin)?$/,
-      (m)=>{
-        const tens={"hai":2,"ba":3,"bon":4,"nam":5,"sau":6,"bay":7,"tam":8,"chin":9};
-        const ones={"mot":1,"hai":2,"ba":3,"bon":4,"nam":5,"lam":5,"sau":6,"bay":7,"tam":8,"chin":9};
-        let v=tens[m[1]]*10;
-        if(m[3])v+=ones[m[3]]||0;
-        return v;
-      }
-    ],
-    // muoi mot=11, muoi hai=12, etc.
-    [/^muoi\s*(mot|hai|ba|bon|nam|lam|sau|bay|tam|chin)?$/,
-      (m)=>{
-        const ones={"mot":1,"hai":2,"ba":3,"bon":4,"nam":5,"lam":5,"sau":6,"bay":7,"tam":8,"chin":9};
-        return 10+(m[1]?ones[m[1]]||0:0);
-      }
-    ],
-    // mot tram hai muoi ba = 123
-    [/^(mot|hai|ba|bon|nam|sau|bay|tam|chin)\s*(tram)\s*(.*)$/,
-      (m)=>{
-        const h={"mot":1,"hai":2,"ba":3,"bon":4,"nam":5,"sau":6,"bay":7,"tam":8,"chin":9};
-        let v=h[m[1]]*100;
-        if(m[3].trim()){v+=parseVietnamese(m[3].trim())||0}
-        return v;
-      }
-    ],
-    // single digits
-    [/^(khong|mot|hai|ba|bon|nam|sau|bay|tam|chin)$/,
-      (m)=>{
-        const d={"khong":0,"mot":1,"hai":2,"ba":3,"bon":4,"nam":5,"sau":6,"bay":7,"tam":8,"chin":9};
-        return d[m[1]]??null;
-      }
-    ]
-  ];
-  for(const[re,fn]of vnPatterns){
-    const m=lo.match(re);
-    if(m){const v=fn(m);if(v!==null)return v}
+async function toSheet(action,params){
+  sync="pe";R();
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),12000);
+  try{
+    const url=new URL(GURL);
+    url.searchParams.set("action",action);
+    for(const[k,v]of Object.entries(params))url.searchParams.set(k,String(v));
+    const response=await fetch(url,{redirect:"follow",signal:controller.signal,cache:"no-store"});
+    const text=await response.text();
+    let result={};
+    try{result=JSON.parse(text)}catch{throw new Error("Spreadsheet returned a non-JSON response")}
+    sync=response.ok&&!result.error?"ok":"er";
+    if(result.error)log("Sheet: "+result.error,"error");
+  }catch(error){
+    sync="er";
+    log(error?.name==="AbortError"?"Sheet request timed out":"Sheet sync failed","error");
+  }finally{
+    clearTimeout(timer);R();
   }
+}
+const EN_NUMBERS={
+  zero:0,one:1,won:1,two:2,too:2,three:3,tree:3,free:3,four:4,five:5,hive:5,
+  six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,
+  fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,
+  twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90,
+  hundred:100
+};
+const VN_DIGITS={khong:0,mot:1,hai:2,ba:3,bon:4,nam:5,lam:5,sau:6,bay:7,tam:8,chin:9};
+const NUMBER_TOKENS=new Set([
+  ...Object.keys(EN_NUMBERS),...Object.keys(VN_DIGITS),'muoi','tram','linh','le'
+]);
+function normWord(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d')}
+function parseVietnamese(input){
+  let t=normWord(input).replace(/-/g,' ').trim().split(/\s+/).filter(Boolean);
+  t=t.filter(x=>x!=='va');
+  if(!t.length)return null;
+  const digit=x=>Object.prototype.hasOwnProperty.call(VN_DIGITS,x)?VN_DIGITS[x]:null;
+  let total=0;
+  const hi=t.indexOf('tram');
+  if(hi>=0){
+    const h=hi>0?digit(t[hi-1]):1;
+    if(h===null)return null;
+    total+=h*100;
+    t=t.slice(hi+1);
+    if(t[0]==='linh'||t[0]==='le')t=t.slice(1);
+  }
+  if(!t.length)return total;
+  if(t[0]==='muoi'){
+    total+=10;
+    if(t.length>1){const o=digit(t[1]);if(o===null)return null;total+=o}
+    return total;
+  }
+  if(t.length>=2&&t[1]==='muoi'){
+    const d=digit(t[0]);if(d===null||d===0)return null;
+    total+=d*10;
+    if(t.length>2){const o=digit(t[2]);if(o===null)return null;total+=o}
+    return total;
+  }
+  if(t.length===1){const d=digit(t[0]);return d===null?null:total+d}
   return null;
 }
-
-function w2n(s){
-  // Try integer first
-  const d=parseInt(s);if(!isNaN(d))return d;
-
-  // Try Vietnamese
-  const vn=parseVietnamese(s);
-  if(vn!==null&&vn>0)return vn;
-
-  // English word numbers
-  const w=s.toLowerCase().replace(/-/g," ").replace(/\b(uh|um|a|the|and)\b/g,"").trim().split(/\s+/).filter(Boolean);
-  let c=0;
-  for(const x of w){
-    const val=WN[x];
-    if(val!==undefined){
-      if(x==="hundred"||x==="trăm"||x==="tram")c=(c||1)*100;
-      else c+=val;
-    }
+function parseEnglishNumber(input){
+  const words=normWord(input).replace(/-/g,' ').replace(/\b(uh|um|a|the|and)\b/g,' ').trim().split(/\s+/).filter(Boolean);
+  if(!words.length)return null;
+  let total=0,current=0,seen=false;
+  for(const word of words){
+    if(!Object.prototype.hasOwnProperty.call(EN_NUMBERS,word))return null;
+    seen=true;
+    const value=EN_NUMBERS[word];
+    if(word==='hundred')current=(current||1)*100;
+    else current+=value;
   }
-  return c;
+  total+=current;
+  return seen?total:null;
 }
+function w2n(s){
+  const raw=String(s||'').trim();
+  if(/^\d+$/.test(raw))return Number(raw);
+  const vn=parseVietnamese(raw);if(vn!==null)return vn;
+  const en=parseEnglishNumber(raw);return en===null?0:en;
+}
+function isNumberToken(token){return NUMBER_TOKENS.has(normWord(token))}
 
 function lev(a,b){const m=a.length,n=b.length,d=Array.from({length:m+1},()=>Array(n+1).fill(0));for(let i=0;i<=m;i++)d[i][0]=i;for(let j=0;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]!==b[j-1]?1:0));return d[m][n]}
 
-const NA={"david":["david","davit","dave"],"mark":["mark","marc","mock"],"tala":["tala","talla","tyler","tara"],"huong":["huong","hong","hung","huang","hwong","fuong"],"paulo":["paulo","pablo","polo","paul"],"bob":["bob","bop","rob"],"dung":["dung","dong","doong","young","jung","yung"],"lan":["lan","lynn","lam","lon"],"lien":["lien","lean","leon","leen","lin"],"hoi":["hoi","hoy","hoe","hey"],"son":["son","sun","sung","sewn","zone"],"chien":["chien","chen","chicken","jean","chain","sheen"],"ito":["ito","eagle","etoh","eat oh","e2","e to"],"hong":["hong","hung","honk"],"tu":["tu","too","to","tue"],"nghia":["nghia","nia","nea","niya","knee ya"],"vinh":["vinh","vin","veen","vine","win"],"kevin":["kevin","kelvin","gavin","kev"],"ninh":["ninh","nin","ning","neen","nine"],"phat":["phat","fat","fatt","pot","pat"],"linh":["linh","lin","ling","lynn"],"dieu":["dieu","dew","due","dio","dee you"],"amy":["amy","amee","aimee"],"thi":["thi","tea","thee","ti","tee","fee"]};
+const NA={"david":["david","davit","dave"],"david 2":["david two","david 2","david number two","second david"],"mark":["mark","marc","mock"],"tala":["tala","talla","tyler","tara"],"huong":["huong","hong","hung","huang","hwong","fuong"],"paulo":["paulo","pablo","polo","paul"],"bob":["bob","bop","rob"],"dung":["dung","dong","doong","young","jung","yung"],"lan":["lan","lynn","lam","lon"],"lien":["lien","lean","leon","leen","lin"],"hoi":["hoi","hoy","hoe","hey"],"son":["son","sun","sung","sewn","zone"],"chien":["chien","chen","chicken","jean","chain","sheen"],"ito":["ito","eagle","etoh","eat oh","e2","e to"],"hong":["hong","hung","honk"],"tu":["tu","too","to","tue"],"nghia":["nghia","nia","nea","niya","knee ya"],"vinh":["vinh","vin","veen","vine","win"],"kevin":["kevin","kelvin","gavin","kev"],"kevin le":["kevin le","kevin lee","kelvin le","kevinly"],"ninh":["ninh","nin","ning","neen","nine"],"phat":["phat","fat","fatt","pot","pat"],"linh":["linh","lin","ling","lynn"],"dieu":["dieu","dew","due","dio","dee you"],"amy":["amy","amee","aimee"],"thi":["thi","tea","thee","ti","tee","fee"],"tri":["tri","tree","three","chee"],"niel":["niel","neil","neal","nil"],"lucy":["lucy","lucie","loosey"],"nga":["nga","nah","ngah"]};
 
 function findName(sp){
-  const lo=sp.toLowerCase().trim().replace(/\b(uh|um|a|the|and|for)\b/g,"").trim();
+  const lo=sp.toLowerCase().trim().replace(/\b(uh|um|a|the|and|for)\b/g,"").replace(/\s+/g," ").trim();
   if(!lo)return{name:null,conf:0};
   for(let i=0;i<NAMES.length;i++)if(lo===NL[i])return{name:NAMES[i],conf:100};
-  for(const[k,al]of Object.entries(NA)){const rn=NAMES.find(n=>n.toLowerCase()===k);if(!rn)continue;for(const a of al)if(lo===a||lo.includes(a))return{name:rn,conf:96}}
+  const aliasEntries=[];
+  for(const[key,aliases]of Object.entries(NA)){
+    const realName=NAMES.find(name=>name.toLowerCase()===key);
+    if(!realName)continue;
+    for(const alias of aliases)aliasEntries.push({alias,realName});
+  }
+  aliasEntries.sort((a,b)=>b.alias.length-a.alias.length);
+  for(const entry of aliasEntries)if(lo===entry.alias)return{name:entry.realName,conf:98};
+  for(const entry of aliasEntries)if(entry.alias.length>=4&&lo.includes(entry.alias))return{name:entry.realName,conf:96};
   const sorted=[...NAMES].sort((a,b)=>b.length-a.length);
-  for(const n of sorted)if(lo.includes(n.toLowerCase()))return{name:n,conf:95};
-  let bs=Infinity,bi=0;
-  for(let i=0;i<NAMES.length;i++){const al=NA[NL[i]]||[NL[i]];for(const a of al){const d=lev(lo,a);if(d<bs){bs=d;bi=i}}}
-  const ml=Math.max(lo.length,NL[bi].length||1);
-  return{name:NAMES[bi],conf:Math.round((1-bs/ml)*100)}
+  for(const name of sorted)if(lo.includes(name.toLowerCase()))return{name,conf:95};
+  let bestDistance=Infinity,bestIndex=0;
+  for(let i=0;i<NAMES.length;i++){
+    const aliases=NA[NL[i]]||[NL[i]];
+    for(const alias of aliases){const distance=lev(lo,alias);if(distance<bestDistance){bestDistance=distance;bestIndex=i}}
+  }
+  const maxLength=Math.max(lo.length,NL[bestIndex].length||1);
+  return{name:NAMES[bestIndex],conf:Math.max(0,Math.round((1-bestDistance/maxLength)*100))}
 }
 
 const NW=["rock","rocks","rok","roc","pacific","pacifica","specific","pasific","normal"];
@@ -208,7 +224,7 @@ function parseCmd(text){
     // Consume words that are number words
     while(i<ws.length){
       const w=ws[i].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-      if(WN[w]!==undefined||WN[ws[i]]!==undefined||["muoi","tram"].includes(w)){
+      if(isNumberToken(w)){
         nw.push(ws[i]);i++;
       } else break;
     }
@@ -231,7 +247,32 @@ function spMatch(sp){
   return bs<=2?NAMES[bi]:null;
 }
 
-function say(t){return new Promise(r=>{speechSynthesis.cancel();setTimeout(()=>{const u=new SpeechSynthesisUtterance(t);u.rate=1.4;u.volume=1;u.pitch=1.1;u.lang="en-US";u.onend=()=>setTimeout(r,60);u.onerror=()=>setTimeout(r,60);speechSynthesis.speak(u)},30)})}
+function say(text){
+  return new Promise(resolve=>{
+    micPaused=true;
+    try{rec?.abort()}catch{}
+    speechSynthesis.cancel();
+    setTimeout(()=>{
+      const utterance=new SpeechSynthesisUtterance(text);
+      utterance.rate=1.4;utterance.volume=1;utterance.pitch=1.1;utterance.lang=voiceLang;
+      const finish=()=>setTimeout(()=>{
+        micPaused=false;
+        if(on)startMic();
+        resolve();
+      },100);
+      utterance.onend=finish;utterance.onerror=finish;
+      speechSynthesis.speak(utterance);
+    },40);
+  });
+}
+function toggleLang(){
+  voiceLang=voiceLang==="en-US"?"vi-VN":"en-US";
+  log("Voice language: "+(voiceLang==="en-US"?"English":"Vietnamese"),"info");
+  micPaused=true;
+  try{rec?.abort()}catch{}
+  R();
+  setTimeout(()=>{micPaused=false;if(on)startMic()},120);
+}
 function vib(m){try{navigator.vibrate(m)}catch{}}
 function log(m,t="info"){logs.push({m,t,d:new Date()});if(logs.length>60)logs=logs.slice(-60);R()}
 function tot(p){
@@ -242,14 +283,23 @@ function tot(p){
 }
 
 function startMic(){
-  if(!on)return;
+  if(!on||micPaused)return;
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){log("Use Safari!","error");return}
+  if(!SR){log("Speech recognition is not supported in this browser.","error");return}
   try{rec?.abort()}catch{}
-  rec=new SR();rec.continuous=false;rec.interimResults=false;rec.lang="en-US";
-  rec.onresult=(e)=>{const t=(e.results[0]?.[0]?.transcript||"").trim();if(t.length>=1){log('🗣 "'+t+'"',"info");handle(t)}};
-  rec.onerror=(e)=>{if(e.error==="not-allowed"){on=false;mode="idle";log("Mic blocked","error");R()}};
-  rec.onend=()=>{if(on)setTimeout(()=>{if(on)startMic()},200)};
+  rec=new SR();rec.continuous=false;rec.interimResults=false;rec.lang=voiceLang;
+  rec.onresult=(event)=>{
+    const text=(event.results[0]?.[0]?.transcript||"").trim();
+    if(text){log('🗣 "'+text+'"',"info");handle(text)}
+  };
+  rec.onerror=(event)=>{
+    if(event.error==="not-allowed"||event.error==="service-not-allowed"){
+      on=false;mode="idle";log("Microphone access was blocked.","error");R();
+    }else if(!["aborted","no-speech"].includes(event.error)){
+      log("Voice error: "+event.error,"error");
+    }
+  };
+  rec.onend=()=>{if(on&&!micPaused)setTimeout(startMic,250)};
   try{rec.start()}catch{}
 }
 
@@ -257,9 +307,10 @@ async function handle(text){
   const lo=text.toLowerCase().trim();
 
   if(mode==="confirm"){
-    if(/no|nope|nah|wrong|cancel/.test(lo)){clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);doNo();return}
-    // Anything else or silence = yes
-    clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);doYes();return;
+    if(/^(no|nope|nah|wrong|cancel|khong|không)$/.test(lo)){clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);doNo();return}
+    if(/^(yes|yeah|yep|correct|ok|okay|dung|đúng)$/.test(lo)){clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);doYes();return}
+    log("Say yes or no, or wait for auto-save.","info");
+    return;
   }
 
   if(mode==="spell"){
@@ -291,8 +342,13 @@ function animSpBar(){cancelAnimationFrame(spAnimId);function t(){const el=docume
 
 async function finishSpell(){clearTimeout(spTimer);cancelAnimationFrame(spAnimId);const m=spMatch(spelled);if(m){log("Spelled → "+m,"success");addEntry(pVal,pType,m);spelled="";pVal=null;mode="listening";R();vib([50,30,50]);await say(m+". Done.");return}log("No match: "+spelled.toUpperCase(),"error");spelled="";mode="pickName";R();await say("Tap name.")}
 
-async function doYes(){clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);if(!pName||!pVal)return;addEntry(pVal,pType,pName);pVal=null;pName=null;mode="listening";R();vib([50,30,50]);await say("Done.")}
-async function doNo(){clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);pVal=null;pName=null;mode="listening";R();await say("Again.")}
+async function doYes(){clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);if(!pName||!pVal)return;addEntry(pVal,pType,pName);pVal=null;pName=null;pRaw="";mode="listening";R();vib([50,30,50]);await say("Done.")}
+async function doNo(){
+  clearTimeout(confirmTimer);cancelAnimationFrame(confirmAnimId);
+  const correctionId=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(16).slice(2));
+  if(pRaw||pVal)toSheet("queueVoiceCorrection",{correctionId,raw:pRaw||"",name:pName||"",value:pVal||"",type:pType||"normal"});
+  pVal=null;pName=null;pRaw="";mode="listening";R();await say("Again.")
+}
 function tapName(name){if(!pVal)return;clearTimeout(spTimer);cancelAnimationFrame(spAnimId);addEntry(pVal,pType,name);pVal=null;pName=null;spelled="";mode="listening";R();vib([50,30,50]);say("Done.")}
 function cancelSpell(){clearTimeout(spTimer);cancelAnimationFrame(spAnimId);spelled="";mode="listening";R()}
 
@@ -302,15 +358,16 @@ function addEntry(val,type,name){
   else if(type==="costco"){if(p.costco.length>=MC){log(name+": costco full","error");return}p.costco.push(val);lastHL={name,sec:"costco",idx:p.costco.length-1}}
   else if(type==="lidoff"){if(p.lidoff.length>=ML){log(name+": lidoff full","error");return}p.lidoff.push(val);lastHL={name,sec:"lidoff",idx:p.lidoff.length-1}}
   const tl=type==="costco"?" costco":type==="lidoff"?" lidoff":"";
-  recent.unshift({val,type,name});if(recent.length>5)recent=recent.slice(0,5);
+  const id=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(16).slice(2));
+  recent.unshift({id,val,type,name});if(recent.length>5)recent=recent.slice(0,5);
   log("✓ "+val+tl+" → "+name+" ("+tot(D[name])+")","success");
   R();setTimeout(()=>{lastHL=null;R()},2000);
-  toSheet("add",{name,value:val,type});
+  toSheet("add",{id,name,value:val,type});
 }
 
-function undo(){if(!recent.length)return;const e=recent.shift();const p=D[e.name];if(!p)return;if(e.type==="normal")p.normal.pop();else if(e.type==="costco")p.costco.pop();else if(e.type==="lidoff")p.lidoff.pop();log("↩ "+e.name,"info");R();toSheet("undo",{name:e.name,type:e.type})}
+function undo(){if(!recent.length)return;const e=recent.shift();const p=D[e.name];if(!p)return;if(e.type==="normal")p.normal.pop();else if(e.type==="costco")p.costco.pop();else if(e.type==="lidoff")p.lidoff.pop();log("↩ "+e.name,"info");R();toSheet("undo",{id:e.id||"",name:e.name,type:e.type,value:e.val})}
 
-async function start(){on=true;mode="listening";log("Session started","success");R();await say("Ready.");startMic()}
+async function start(){on=true;mode="listening";log("Session started","success");R();await say("Ready.")}
 async function stop(){on=false;try{rec?.abort()}catch{}clearTimeout(spTimer);clearTimeout(confirmTimer);cancelAnimationFrame(spAnimId);cancelAnimationFrame(confirmAnimId);mode="idle";pVal=null;pName=null;spelled="";log("Session ended","info");R();await say("Done.")}
 function setView(v){mode=v;R()}
 
@@ -320,7 +377,7 @@ function R(){
   let h="";
 
   if(!on){
-    h+=`<div class="header"><h1>🧮 Tray Tally ${sb}</h1></div>`;
+    h+=`<div class="header"><h1>🧮 Tray Tally ${sb}</h1><div style="display:flex;gap:5px"><button class="chip" onclick="location.href='photo.html'">📷</button><button class="chip" onclick="toggleLang()">${voiceLang==="en-US"?"EN":"VI"}</button></div></div>`;
     if(recent.length){h+=`<div class="recent">`;recent.forEach(e=>{h+=`<span class="ri ${e.type}">${e.val}→${e.name}</span>`});h+=`</div>`}
     h+=renderT();
     h+=`<div class="bottom"><div class="mbw"><button class="bcopy" onclick="start()"><span style="font-size:28px">🎤</span> COPY</button></div>`;
@@ -329,7 +386,7 @@ function R(){
   }
 
   h+=`<div class="header"><h1><span class="rec-dot"></span> Tray Tally ${sb}</h1><div style="display:flex;gap:5px">`;
-  h+=`<button class="chip" onclick="undo()">↩</button>`;
+  h+=`<button class="chip" onclick="undo()">↩</button><button class="chip" onclick="location.href='photo.html'">📷</button><button class="chip" onclick="toggleLang()">${voiceLang==="en-US"?"EN":"VI"}</button>`;
   h+=`<button class="chip" onclick="setView('table')">📊</button>`;
   h+=`<button class="chip" onclick="setView('log')">📋</button>`;
   h+=`</div></div>`;
